@@ -1,7 +1,6 @@
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
-const path = require("path");
 const cors = require("cors");
 
 const Propiedad = require("./models/Propiedad");
@@ -14,7 +13,7 @@ const app = express();
 // =========================
 app.use(
   cors({
-    origin: "*", // en producción puedes limitarlo a tu Netlify
+    origin: "*", // 🔥 luego lo limitamos a tu Netlify
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type"],
   })
@@ -24,17 +23,19 @@ app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 // =========================
-// SERVIR FRONTEND (opcional)
-// =========================
-app.use(express.static(path.join(__dirname, "../public")));
-
-// =========================
 // CONEXIÓN MONGO
 // =========================
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB conectado"))
   .catch((err) => console.error("❌ Error MongoDB:", err.message));
+
+// =========================
+// RUTA PRINCIPAL (Render)
+// =========================
+app.get("/", (req, res) => {
+  res.send("API Vendecasas funcionando ✅");
+});
 
 // =========================
 // API PROPIEDADES
@@ -153,10 +154,10 @@ app.post("/api/contacto", async (req, res) => {
 });
 
 // =========================
-// FRONTEND FALLBACK (solo si sirves el front desde aquí)
+// 404 (si no existe ruta)
 // =========================
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/index.html"));
+app.use((req, res) => {
+  res.status(404).json({ error: "Ruta no encontrada" });
 });
 
 // =========================
