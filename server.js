@@ -6,7 +6,23 @@ const cors = require("cors");
 const Propiedad = require("./models/Propiedad");
 const Contacto = require("./models/Contacto");
 
+const multer = require("multer");
+const sharp = require("sharp");
+const fs = require("fs");
+
 const app = express();
+
+// =========================
+// CARPETA DE UPLOADS
+// =========================
+const UPLOADS_DIR = "./uploads";
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
+
+// =========================
+// MULTER (manejo de archivos)
+// =========================
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
 // =========================
 // MIDDLEWARES
@@ -54,10 +70,21 @@ app.get("/api/propiedades", async (req, res) => {
   }
 });
 
-// Crear
-app.post("/api/propiedades", async (req, res) => {
+// Crear propiedad con imagen
+app.post("/api/propiedades", upload.single("imagen"), async (req, res) => {
   try {
-    const data = req.body;
+    const data = req.body.data ? JSON.parse(req.body.data) : req.body;
+    let imageName = null;
+
+    if (req.file) {
+      // Convertir imagen a JPG si es HEIC o PNG
+      const buffer = await sharp(req.file.buffer)
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+      imageName = `propiedad_${Date.now()}.jpg`;
+      fs.writeFileSync(`${UPLOADS_DIR}/${imageName}`, buffer);
+    }
 
     const last = await Propiedad.findOne().sort({ id: -1 });
     const nextId = last ? last.id + 1 : 1;
@@ -65,10 +92,12 @@ app.post("/api/propiedades", async (req, res) => {
     const nueva = await Propiedad.create({
       ...data,
       id: nextId,
+      imagen: imageName, // Guardar nombre de la imagen en DB
     });
 
     res.json(nueva);
   } catch (e) {
+    console.error(e);
     res.status(500).json({ error: "Error al crear propiedad" });
   }
 });
