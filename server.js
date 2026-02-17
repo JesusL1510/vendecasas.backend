@@ -29,13 +29,12 @@ const upload = multer({ storage });
 // =========================
 app.use(
   cors({
-    origin: "*", // 🔥 luego lo limitamos a tu Netlify
+    origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// 🔥 Preflight (Netlify / navegador)
 app.options("*", cors());
 
 app.use(express.json({ limit: "25mb" }));
@@ -50,7 +49,7 @@ mongoose
   .catch((err) => console.error("❌ Error MongoDB:", err.message));
 
 // =========================
-// RUTA PRINCIPAL (Render)
+// RUTA PRINCIPAL
 // =========================
 app.get("/", (req, res) => {
   res.send("API Vendecasas funcionando ✅");
@@ -65,34 +64,43 @@ app.get("/api/propiedades", async (req, res) => {
   try {
     const props = await Propiedad.find().sort({ id: 1 });
     res.json(props);
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Error al obtener propiedades" });
   }
 });
 
-// Crear propiedad con imagen
-app.post("/api/propiedades", upload.single("imagen"), async (req, res) => {
+// =====================================================
+// 🔥 POST JSON (USADO POR TU ADMIN → SOLUCIÓN DEFINITIVA)
+// =====================================================
+app.post("/api/propiedades", async (req, res) => {
   try {
-    const data = req.body.data ? JSON.parse(req.body.data) : req.body;
-    let imageName = null;
+    const data = req.body;
 
-    if (req.file) {
-      // Convertir imagen a JPG si es HEIC o PNG
-      const buffer = await sharp(req.file.buffer)
-        .jpeg({ quality: 90 })
-        .toBuffer();
+    const terrenoM2 =
+      data.terrenoM2 !== undefined && data.terrenoM2 !== null && data.terrenoM2 !== ""
+        ? Number(data.terrenoM2)
+        : null;
 
-      imageName = `propiedad_${Date.now()}.jpg`;
-      fs.writeFileSync(`${UPLOADS_DIR}/${imageName}`, buffer);
-    }
+    const construccionM2 =
+      data.construccionM2 !== undefined && data.construccionM2 !== null && data.construccionM2 !== ""
+        ? Number(data.construccionM2)
+        : null;
+
+    const imagenes = Array.isArray(data.imagenes) ? data.imagenes : [];
 
     const last = await Propiedad.findOne().sort({ id: -1 });
     const nextId = last ? last.id + 1 : 1;
 
     const nueva = await Propiedad.create({
-      ...data,
+      titulo: data.titulo,
+      tipo: data.tipo,
+      zona: data.zona,
+      precio: data.precio,
+      descripcion: data.descripcion,
+      terrenoM2,
+      construccionM2,
+      imagenes,
       id: nextId,
-      imagen: imageName, // Guardar nombre de la imagen en DB
     });
 
     res.json(nueva);
@@ -102,67 +110,95 @@ app.post("/api/propiedades", upload.single("imagen"), async (req, res) => {
   }
 });
 
-// Editar (acepta _id o id numérico)
+// =====================================================
+// POST CON IMAGEN (MULTER) – NO SE USA PERO SE CONSERVA
+// =====================================================
+app.post("/api/propiedades/upload", upload.single("imagen"), async (req, res) => {
+  try {
+    const data = req.body.data ? JSON.parse(req.body.data) : req.body;
+
+    data.terrenoM2 = data.terrenoM2 ? Number(data.terrenoM2) : null;
+    data.construccionM2 = data.construccionM2 ? Number(data.construccionM2) : null;
+
+    let imageName = null;
+
+    if (req.file) {
+      const buffer = await sharp(req.file.buffer)
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+      imageName = `propiedad_${Date.now()}.jpg`;
+      fs.writeFileSync(`${UPLOADS_DIR}/${imageName}`, buffer);
+    }
+
+    if (!Array.isArray(data.imagenes)) data.imagenes = [];
+    if (imageName) data.imagenes.push(imageName);
+
+    const last = await Propiedad.findOne().sort({ id: -1 });
+    const nextId = last ? last.id + 1 : 1;
+
+    const nueva = await Propiedad.create({
+      ...data,
+      id: nextId,
+    });
+
+    res.json(nueva);
+  } catch (e) {
+    res.status(500).json({ error: "Error al crear propiedad con imagen" });
+  }
+});
+
+// =========================
+// PUT (editar)
+// =========================
 app.put("/api/propiedades/:id", async (req, res) => {
   try {
     const param = req.params.id;
+    const body = { ...req.body };
 
-    // Si viene como número -> id incremental
-    if (!isNaN(Number(param))) {
-      const idNum = Number(param);
+    if (body.terrenoM2 !== undefined)
+      body.terrenoM2 = body.terrenoM2 ? Number(body.terrenoM2) : null;
 
-      const updated = await Propiedad.findOneAndUpdate({ id: idNum }, req.body, {
-        new: true,
-      });
+    if (body.construccionM2 !== undefined)
+      body.construccionM2 = body.construccionM2 ? Number(body.construccionM2) : null;
 
-      if (!updated) return res.status(404).json({ error: "No encontrada" });
-
-      return res.json(updated);
-    }
-
-    // Si viene como string -> _id de Mongo
-    const updated = await Propiedad.findByIdAndUpdate(param, req.body, {
-      new: true,
-    });
+    const updated = !isNaN(Number(param))
+      ? await Propiedad.findOneAndUpdate({ id: Number(param) }, body, { new: true })
+      : await Propiedad.findByIdAndUpdate(param, body, { new: true });
 
     if (!updated) return res.status(404).json({ error: "No encontrada" });
 
     res.json(updated);
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Error al actualizar propiedad" });
   }
 });
 
-// Eliminar (acepta _id o id numérico)
+// =========================
+// DELETE
+// =========================
 app.delete("/api/propiedades/:id", async (req, res) => {
   try {
     const param = req.params.id;
 
-    if (!isNaN(Number(param))) {
-      const idNum = Number(param);
-      const deleted = await Propiedad.findOneAndDelete({ id: idNum });
-
-      if (!deleted) return res.status(404).json({ error: "No encontrada" });
-
-      return res.json({ ok: true });
-    }
-
-    const deleted = await Propiedad.findByIdAndDelete(param);
+    const deleted = !isNaN(Number(param))
+      ? await Propiedad.findOneAndDelete({ id: Number(param) })
+      : await Propiedad.findByIdAndDelete(param);
 
     if (!deleted) return res.status(404).json({ error: "No encontrada" });
 
     res.json({ ok: true });
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Error al eliminar propiedad" });
   }
 });
 
-// Eliminar todo (reset)
+// Eliminar todo
 app.delete("/api/propiedades", async (req, res) => {
   try {
     await Propiedad.deleteMany({});
     res.json({ ok: true });
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Error al vaciar propiedades" });
   }
 });
@@ -173,20 +209,18 @@ app.delete("/api/propiedades", async (req, res) => {
 app.post("/api/contacto", async (req, res) => {
   try {
     const { nombre, telefono, mensaje } = req.body;
-
-    if (!nombre || !telefono || !mensaje) {
+    if (!nombre || !telefono || !mensaje)
       return res.status(400).json({ error: "Faltan campos" });
-    }
 
     await Contacto.create({ nombre, telefono, mensaje });
     res.json({ ok: true });
-  } catch (e) {
+  } catch {
     res.status(500).json({ error: "Error al guardar contacto" });
   }
 });
 
 // =========================
-// 404 (si no existe ruta)
+// 404
 // =========================
 app.use((req, res) => {
   res.status(404).json({ error: "Ruta no encontrada" });
@@ -196,7 +230,6 @@ app.use((req, res) => {
 // PORT
 // =========================
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
 });

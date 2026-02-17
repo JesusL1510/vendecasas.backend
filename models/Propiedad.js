@@ -7,6 +7,8 @@ const PropiedadSchema = new mongoose.Schema(
     tipo: { type: String, enum: ["Venta", "Traspaso"], required: true },
     zona: { type: String, required: true },
     precio: { type: String, required: true },
+    terrenoM2: { type: Number, default: null },
+construccionM2: { type: Number, default: null },
     descripcion: { type: String, required: true },
     imagenes: { type: [String], default: [] } // base64 tal cual
   },
